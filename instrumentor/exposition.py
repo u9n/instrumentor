@@ -1,5 +1,6 @@
 from itertools import groupby
 import attr
+import typing
 
 
 @attr.s
@@ -11,10 +12,10 @@ class RedisKeyValuePair:
 @attr.s
 class MetricSet:
 
-    name = attr.ib()
-    description = attr.ib(default=None)
-    type = attr.ib(default=None)
-    counts = attr.ib(default=dict())
+    name: str = attr.ib()
+    description: str = attr.ib(default=None)
+    type: str = attr.ib(default=None)
+    counts: typing.Dict = attr.ib(default=attr.Factory(dict))
 
     def add_item(self, kv_pair: RedisKeyValuePair):
         extension, labels = self._split_key(kv_pair.key)
@@ -79,7 +80,7 @@ class InstrumentorClient:
             sorted_results, key=lambda x: x.key.split(":")[0]
         ):
             metric = MetricSet(name=metric_name)
-            for item in metric_items:
+            for item in list(metric_items):
                 metric.add_item(item)
 
             metrics.append(metric)

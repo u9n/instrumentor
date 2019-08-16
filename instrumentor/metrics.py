@@ -211,3 +211,122 @@ class Counter(Metric):
         :return:
         """
         self.counts = {NO_LABELS_KEY: 0}
+
+
+class Gauge(Metric):
+    """
+    A Gauge is a value that can increase and decrease.
+    """
+
+    TYPE_KEY = "g"
+
+    def __init__(self, name, description, allowed_labels=None, initial_value=0):
+        super().__init__(name, description, allowed_labels)
+
+        self.counts = {NO_LABELS_KEY: initial_value}
+        self.set_command_issued = set()
+
+    def _set_command_issued_for_label_combination(self, label_combination):
+
+        return label_combination in self.set_command_issued
+
+    def inc(self, value=1, labels: Dict[str, str] = None) -> None:
+        """
+        Increases the value.
+        If a set command has been issued, we can keep in using the redis set command.
+        If not we don't know the current remote state of the gauge, but we can still use
+        redis incrby and have correct value. After a set has been made for a label
+        combination we can keep on using redis set and get a bit more performance.
+
+        :param value:
+        :param labels:
+        :return:
+        """
+
+        if value < 0:
+            raise ValueError(
+                f"inc() only accepts positive values. If you want to decreace use dec()."
+            )
+
+        key = self._encode_labels(labels)
+        current_value = self.counts.get(key, 0)
+        new_value = current_value + value
+
+        if self._set_command_issued_for_label_combination(key):
+            self.set(new_value, labels)
+
+        else:
+            # uses incrby and we dont need to know the current value.
+            self.counts[key] = new_value
+            self.propagate(
+                [
+                    UpdateAction(
+                        key=self._structure_key_name(labels=key), value=new_value
+                    )
+                ]
+            )
+
+    def dec(self, value=1, labels: Dict[str, str] = None) -> None:
+        """
+        Increases the value.
+        If a set command has been issued, we can keep in using the redis set command.
+        If not we don't know the current remote state of the gauge, but we can still use
+        redis incrby and have correct value. After a set has been made for a label
+        combination we can keep on using redis set and get a bit more performance.
+
+        :param value:
+        :param labels:
+        :return:
+        """
+        if value < 0:
+            raise ValueError(
+                f"dec() only accepts positive values. If you want to increase use inc()."
+            )
+
+        key = self._encode_labels(labels)
+        current_value = self.counts.get(key, 0)
+        new_value = current_value - value
+
+        if self._set_command_issued_for_label_combination(key):
+            self.set(new_value, labels)
+
+        else:
+            # uses incrby and we dont need to know the current value.
+            self.counts[key] = new_value
+            self.propagate(
+                [
+                    UpdateAction(
+                        key=self._structure_key_name(labels=key), value=new_value
+                    )
+                ]
+            )
+
+    def set(self, value, labels: Dict[str, str] = None) -> None:
+        """
+        Sets the value of a label combination.
+
+        :param value:
+        :param labels:
+        :return:
+        """
+
+        key = self._encode_labels(labels)
+
+        self.counts[key] = value
+
+        self.propagate(
+            [
+                UpdateAction(
+                    key=self._structure_key_name(labels=key), value=value, set=True
+                )
+            ]
+        )
+
+        self.set_command_issued.add(key)
+
+    def reset(self):
+        """
+        Since a gauge can go up and down we should not set the value to zero on reset
+        :return:
+        """
+        pass

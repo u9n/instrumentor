@@ -69,9 +69,13 @@ class CollectorRegistry:
         hmset_map = {action.key: action.value for action in set_actions}
 
         with self.pipe() as pipe:
-            pipe.hmset(self.namespace, hmset_map)
+            if hmset_map:
+                pipe.hmset(self.namespace, hmset_map)
             for action in incr_actions:
-                pipe.hincrby(self.namespace, action.key, action.value)
+                if isinstance(action.value, int):
+                    pipe.hincrby(self.namespace, action.key, action.value)
+                if isinstance(action.value, float):
+                    pipe.hincrbyfloat(self.namespace, action.key, action.value)
 
         for metric_name in metric_names:
             metric = self.metrics[metric_name]
