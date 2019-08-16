@@ -179,8 +179,6 @@ class Counter(Metric):
 
         self.counts = {NO_LABELS_KEY: 0}
 
-        # TODO: Keep track of changed keys. So only to send the onces increased.
-
     def inc(self, value: int = 1, labels: Dict[str, str] = None) -> None:
         """
         Will increase the counter for a given label combination. It does not allow
