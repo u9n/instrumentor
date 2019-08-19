@@ -339,6 +339,33 @@ def myfunc()
 
 Other special instrumenting cases can be built using the normal functions on metrics.
 
+
+#### Instrumenting Django
+
+Collecting metrics about requests and response times are probably better to do in the 
+load balancer/reverse proxy.
+
+We mainly want to instrument aspects of out application.
+
+Registry should be in its own module and be imported in `__init__` so it gets loaded by 
+default (simmilar to setup of Celery)
+
+By making a middleware class that calls `transfer()` on the register
+when the response is returning we can make use of pipelining and 
+update all metrics that where affected during the request.
+
+#### Instrumenting Flask
+
+Similar to django. 
+
+Registry probably be made as an extension so it can be saved in the global app context.
+
+have the `transfer()` be registed to be run using Flasks `after_request` decorator.
+
+
+
+
+
  
  
  

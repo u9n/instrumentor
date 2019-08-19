@@ -2,15 +2,6 @@ import pytest
 import instrumentor
 
 
-@pytest.fixture()
-def counter(registry: instrumentor.CollectorRegistry):
-    counter = instrumentor.Counter(
-        name="http_total_requests", description="Test", allowed_labels=["code", "path"]
-    )
-    registry.register(counter)
-    return counter
-
-
 class TestCounter:
     def test_inc_by_1(self, counter: instrumentor.Counter):
 
@@ -51,3 +42,71 @@ class TestCounter:
     def test_inc_by_negative_raises_value_error(self, counter: instrumentor.Counter):
         with pytest.raises(ValueError):
             counter.inc(-1)
+
+    def test_count_decorator(self, counter: instrumentor.Counter):
+        @counter.count
+        def try_count():
+            print("Counting")
+
+        try_count()
+        try_count()
+        try_count()
+
+        assert counter.counts["__"] == 3
+
+    def test_count_decorator_with_labels(self, counter: instrumentor.Counter):
+        @counter.count(labels={"code": "200"})
+        def try_count():
+            print("Counting")
+
+        try_count()
+        try_count()
+        try_count()
+
+        assert counter.counts['code="200"'] == 3
+
+
+class TestCountDecorator:
+    def test_with_counter(self, counter: instrumentor.Counter):
+        @instrumentor.count(metric=counter)
+        def try_count():
+            print("Counting")
+
+        try_count()
+        try_count()
+        try_count()
+
+        assert counter.counts["__"] == 3
+
+    def test_with_counter_and_labels(self, counter: instrumentor.Counter):
+        @instrumentor.count(metric=counter, labels={"code": "200"})
+        def try_count():
+            print("Counting")
+
+        try_count()
+        try_count()
+        try_count()
+
+        assert counter.counts['code="200"'] == 3
+
+    def test_with_gauge(self, gauge: instrumentor.Gauge):
+        @instrumentor.count(metric=gauge)
+        def try_count():
+            print("Counting")
+
+        try_count()
+        try_count()
+        try_count()
+
+        assert gauge.counts["__"] == 3
+
+    def test_with_gauge_and_labels(self, gauge: instrumentor.Gauge):
+        @instrumentor.count(metric=gauge, labels={"location": "main-office"})
+        def try_count():
+            print("Counting")
+
+        try_count()
+        try_count()
+        try_count()
+
+        assert gauge.counts['location="main-office"'] == 3

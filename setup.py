@@ -15,7 +15,7 @@ REQUIRES_PYTHON = ">=3.6"
 VERSION = "0.0.1dev"
 
 # What packages are required for this module to be executed?
-REQUIRED = ["redis", "hiredis", "attrs"]
+REQUIRED = ["redis==3.3.7", "hiredis==1.0.0", "attrs==19.1.0"]
 
 # What packages are optional?
 EXTRAS = {
@@ -74,6 +74,7 @@ setup(
     python_requires=REQUIRES_PYTHON,
     description=DESCRIPTION,
     long_description=readme + "\n\n" + history,
+    long_description_content_type="text/markdown",
     author=AUTHOR,
     author_email=EMAIL,
     url=URL,

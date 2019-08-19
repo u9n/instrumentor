@@ -1,7 +1,7 @@
 import pytest
 from redislite import StrictRedis
 from instrumentor import CollectorRegistry
-from instrumentor import Counter
+from instrumentor import Counter, Gauge
 from instrumentor.metrics import UpdateAction
 
 
@@ -27,6 +27,27 @@ class TestCollectorRegistry:
             x = registry.metrics[counter.name]
 
         assert counter.registry is None
+
+    def test_register_gauge(self, registry: CollectorRegistry):
+        gauge = Gauge(name="temperature_celsius", description="Temperature in celsius")
+        registry.register(gauge)
+
+        assert registry.metrics[gauge.name] == gauge
+        assert registry.metrics[gauge.name].registry == registry
+
+    def test_unregister_gauge(self, registry: CollectorRegistry):
+        gauge = Gauge(name="temperature_celsius", description="Temperature Celsius")
+        registry.register(gauge)
+
+        assert registry.metrics[gauge.name] == gauge
+        assert registry.metrics[gauge.name].registry == registry
+
+        registry.unregister(gauge)
+
+        with pytest.raises(KeyError):
+            x = registry.metrics[gauge.name]
+
+        assert gauge.registry is None
 
     def test_not_eager(self, registry: CollectorRegistry, redis: StrictRedis):
         counter = Counter(name="http_requests_total", description="Total HTTP Requests")

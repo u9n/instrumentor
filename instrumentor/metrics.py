@@ -1,4 +1,7 @@
+import functools
+import contextlib
 from typing import Dict, List
+import time
 
 import attr
 
@@ -6,6 +9,7 @@ import attr
 NO_LABELS_KEY = "__"
 HISTOGRAM_LABEL = "le"
 SUMMARY_LABEL = "quantile"
+INFINITY_FOR_HISTOGRAM = "+Inf"
 TYPE_EXTENSION_LETTER = "t"
 DESCRIPTION_EXTENSION_LETTER = "d"
 
@@ -28,13 +32,14 @@ class Metric:
     """Base class for metrics"""
 
     RESERVED_LABELS = [NO_LABELS_KEY, HISTOGRAM_LABEL, SUMMARY_LABEL]
+    INTERNAL_LABELS = []
     TYPE_KEY = None
 
     def __init__(self, name, description, allowed_labels=None):
 
         self.name = name
         self.description = description
-        self.allowed_labels = self._clean_labels(allowed_labels)
+        self.allowed_labels = self._clean_allowed_labels(allowed_labels)
         self.registry = None
         self.registered_remotely = False
 
@@ -70,6 +75,7 @@ class Metric:
         to_propagate = list()
 
         for item in kw_list:
+            # TODO: are we missing the :: after value? is that ok?
             if item.key == NO_LABELS_KEY:
                 to_propagate.append(UpdateAction(key=self.name, value=item.value))
 
@@ -106,12 +112,36 @@ class Metric:
         """
         return self._structure_key_name(extension=DESCRIPTION_EXTENSION_LETTER)
 
-    def _clean_labels(self, labels=None) -> list:
+    def _check_labels(self, labels=None) -> dict:
         """
         Raises error on not allowed labels and sorts the labels
         :param labels:
         :return: list
         """
+        if not labels:
+            return dict()
+
+        for label in labels.keys():
+            if label in self.RESERVED_LABELS and label not in self.INTERNAL_LABELS:
+                raise ValueError(
+                    f"Label name {label} is reserved for metric of class "
+                    f"{self.__class__.__name__}"
+                )
+
+            if label not in self.allowed_labels and label not in self.INTERNAL_LABELS:
+                raise ValueError(
+                    f"Label name {label} is not an allowed label in metric {self.name}"
+                )
+
+        return labels
+
+    def _clean_allowed_labels(self, labels=None) -> list:
+        """
+        Raises error on not allowed labels and sorts the labels
+        :param labels:
+        :return: list
+        """
+
         if not labels:
             return list()
 
@@ -123,10 +153,9 @@ class Metric:
                     f"Label name {label} is reserved for metric of class "
                     f"{self.__class__.__name__}"
                 )
-
             _labels.add(label)
 
-        return sorted(_labels)
+        return list(_labels)
 
     def _encode_labels(self, labels=None) -> str:
         """
@@ -139,15 +168,10 @@ class Metric:
         if not labels:
             return NO_LABELS_KEY
 
-        label_string = ""
-        for label_name, label_value in sorted(labels.items()):
-            if label_name in self.RESERVED_LABELS:
-                continue
+        _labels = self._check_labels(labels)
 
-            if label_name not in self.allowed_labels:
-                raise ValueError(
-                    f"Label name {label_name} is not an allowed label in metric {self.name}"
-                )
+        label_string = ""
+        for label_name, label_value in sorted(_labels.items()):
 
             label_string += f'{label_name}="{label_value}",'
 
@@ -164,6 +188,7 @@ class Metric:
         _name = name or self.name
         if labels == NO_LABELS_KEY:
             labels = ""
+
         return f"{_name}:{extension}:{labels}"
 
 
@@ -211,6 +236,27 @@ class Counter(Metric):
         :return:
         """
         self.counts = {NO_LABELS_KEY: 0}
+
+    def count(self, _func=None, *, labels=None):
+        """
+        Decoration that will count the number of times the decorator has been used,
+        ie. how many times the function is called.
+        :return:
+        """
+
+        def count_decorator(func):
+            @functools.wraps(func)
+            def count_wrapper(*args, **kwargs):
+                result = func(*args, **kwargs)
+                self.inc(labels=labels)
+                return result
+
+            return count_wrapper
+
+        if _func is None:
+            return count_decorator
+        else:
+            return count_decorator(_func)
 
 
 class Gauge(Metric):
@@ -330,3 +376,202 @@ class Gauge(Metric):
         :return:
         """
         pass
+
+
+class Histogram(Metric):
+
+    """
+    A histogram samples observations (usually things like request durations
+    or response sizes) and counts them in configurable buckets. It also provides a
+    sum of all observed values.
+
+    A histogram with a base metric name of <basename> exposes multiple time series
+    during a scrape:
+
+    cumulative counters for the observation buckets, exposed
+    as <basename>_bucket{le="<upper inclusive bound>"}
+
+    the total sum of all observed values, exposed as <basename>_sum
+
+    the count of events that have been observed, exposed as <basename>_count
+    (identical to <basename>_bucket{le="+Inf"} above)
+
+    """
+
+    INTERNAL_LABELS = [HISTOGRAM_LABEL]
+    TYPE_KEY = "h"
+
+    def __init__(self, name, description, buckets=None, allowed_labels=None):
+        super().__init__(name, description, allowed_labels)
+
+        self.buckets = buckets
+        self.counts = dict()
+        self.sum = 0
+        self.set_command_issued = set()
+
+    def observe(self, value, labels=None):
+        """
+        Histograms are cumulative in prometheus so an observation should be added in
+        each bucket that is equal or higher than the observation
+        :param value:
+        :param labels:
+        :return:
+        """
+
+        for bucket in self.buckets:
+            if bucket >= value:
+                self._add_observed_value(bucket, labels)
+
+        # TODO: should the sum and count be sensitive to labels?
+        self._add_to_histogram_sum(value)
+        self._increase_total_count()
+
+    def _add_observed_value(self, bucket, labels=None):
+        bucket_label = {"le": bucket}
+        if not labels:
+            metric_labels = dict()
+        else:
+            metric_labels = labels
+        all_labels = {**bucket_label, **metric_labels}
+        count_key = self._encode_labels(all_labels)
+        current_value = self.counts.get(count_key, 0)
+        new_value = current_value + 1
+        self.counts[count_key] = new_value
+
+        self.propagate(
+            [
+                UpdateAction(
+                    key=self._structure_key_name(labels=count_key, extension="b"),
+                    value=new_value,
+                )
+            ]
+        )
+
+    def _add_to_histogram_sum(self, value):
+        self.sum += value
+
+        self.propagate(
+            [UpdateAction(key=self._structure_key_name(extension="s"), value=self.sum)]
+        )
+
+    def _increase_total_count(self):
+
+        self._add_observed_value(bucket=INFINITY_FOR_HISTOGRAM)
+        self.propagate(
+            [
+                UpdateAction(
+                    key=self._structure_key_name(extension="c"),
+                    value=self.counts.get('le="+Inf"'),
+                )
+            ]
+        )
+
+    def reset(self):
+        self.counts = dict()
+        self.sum = 0
+
+    def time(self, _func=None, *, labels=None, milliseconds=False):
+        """
+        Decoration that will time the functions it wraps and add the observation to the
+        histogram.
+        :return:
+        """
+
+        def count_decorator(func):
+            @functools.wraps(func)
+            def count_wrapper(*args, **kwargs):
+                start = time.time()
+                result = func(*args, **kwargs)
+                duration = time.time() - start
+
+                if milliseconds:
+                    observed = duration * 1000
+                else:
+                    observed = duration
+
+                self.observe(value=observed, labels=labels)
+                return result
+
+            return count_wrapper
+
+        if _func is None:
+            return count_decorator
+        else:
+            return count_decorator(_func)
+
+
+def count(_func=None, *, metric, labels=None):
+    """
+        Decoration that will count the number of times the decorator has been used,
+        ie. how many times the function is called.
+        :return:
+        """
+
+    if isinstance(metric, (Counter, Gauge)):
+
+        def count_decorator(func):
+            @functools.wraps(func)
+            def count_wrapper(*args, **kwargs):
+                result = func(*args, **kwargs)
+                metric.inc(labels=labels)
+                return result
+
+            return count_wrapper
+
+        if _func is None:
+            return count_decorator
+        else:
+            return count_decorator(_func)
+
+    else:
+        raise ValueError("Count decorator can only be used with Counters or Gauges.")
+
+
+def timer_decorator(_func=None, *, metric, labels=None, milliseconds=False):
+    """
+    Decoration that will time the functions it wraps and add the observation to the
+    histogram.
+    :return:
+    """
+
+    def count_decorator(func):
+        @functools.wraps(func)
+        def count_wrapper(*args, **kwargs):
+            start = time.time()
+            result = func(*args, **kwargs)
+            duration = time.time() - start
+
+            if milliseconds:
+                observed = duration * 1000
+            else:
+                observed = duration
+
+            metric.observe(value=observed, labels=labels)
+            return result
+
+        return count_wrapper
+
+    if _func is None:
+        return count_decorator
+    else:
+        return count_decorator(_func)
+
+
+class timer(contextlib.ContextDecorator):
+    def __init__(self, *, metric, labels=None, milliseconds=False):
+        self.metric = metric
+        self.labels = labels
+        self.milliseconds = milliseconds
+        self.start_time = None
+
+    def __enter__(self):
+        self.start_time = time.time()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        duration = time.time() - self.start_time
+        if self.milliseconds:
+            observed = duration * 1000
+        else:
+            observed = duration
+
+        self.metric.observe(value=observed, labels=self.labels)
