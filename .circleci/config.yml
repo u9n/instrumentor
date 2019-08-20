@@ -43,7 +43,7 @@ jobs:
           name: install library
           command: |
             . venv/bin/activate
-            pip install . -e
+            pip install -e .
 
 
       # run tests!
