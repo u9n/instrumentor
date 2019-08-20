@@ -1,0 +1,8 @@
+# Development dependencies
+-r requirements.txt
+
+redislite==5.0.142319
+pytest==5.1.0
+pytest-sugar==0.9.2
+coveralls==1.8.2
+pytest-cov==2.7.1

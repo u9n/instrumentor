@@ -217,7 +217,7 @@ class Counter(Metric):
 
         self.counts = {NO_LABELS_KEY: 0}
 
-    def inc(self, value: int = 1, labels: Dict[str, str] = None) -> None:
+    def inc(self, value=1, labels: Dict[str, str] = None) -> None:
         """
         Will increase the counter for a given label combination. It does not allow
         negative values
@@ -417,6 +417,7 @@ class Histogram(Metric):
         self.buckets = buckets
         self.counts = dict()
         self.sum = 0
+        self.total_count = 0
         self.set_command_issued = set()
 
     def observe(self, value, labels=None):
@@ -486,6 +487,7 @@ class Histogram(Metric):
         :return:
         """
         self._add_observed_value(bucket=INFINITY_FOR_HISTOGRAM)
+        self.total_count += 1
         self.propagate(
             [
                 UpdateAction(
@@ -507,9 +509,9 @@ class Histogram(Metric):
         :return:
         """
 
-        def count_decorator(func):
+        def time_decorator(func):
             @functools.wraps(func)
-            def count_wrapper(*args, **kwargs):
+            def time_wrapper(*args, **kwargs):
                 start = time.time()
                 result = func(*args, **kwargs)
                 duration = time.time() - start
@@ -522,15 +524,15 @@ class Histogram(Metric):
                 self.observe(value=observed, labels=labels)
                 return result
 
-            return count_wrapper
+            return time_wrapper
 
         if _func is None:
-            return count_decorator
+            return time_decorator
         else:
-            return count_decorator(_func)
+            return time_decorator(_func)
 
 
-def count(_func=None, *, metric, labels=None):
+def count(*, metric, labels=None):
     """
         Decoration that will count the number of times the decorator has been used,
         ie. how many times the function is called.
@@ -548,10 +550,7 @@ def count(_func=None, *, metric, labels=None):
 
             return count_wrapper
 
-        if _func is None:
-            return count_decorator
-        else:
-            return count_decorator(_func)
+        return count_decorator
 
     else:
         raise ValueError("Count decorator can only be used with Counters or Gauges.")

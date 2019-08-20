@@ -22,6 +22,10 @@ class TestGauge:
         gauge.inc(3)
         assert gauge.counts["__"] == 3
 
+    def test_inc_by_negative_raises_value_error(self, gauge: instrumentor.Gauge):
+        with pytest.raises(ValueError):
+            gauge.inc(-3)
+
     def test_dec_by_1(self, gauge: instrumentor.Gauge):
         gauge.dec()
         assert gauge.counts["__"] == -1
@@ -29,6 +33,10 @@ class TestGauge:
     def test_dec_by(self, gauge: instrumentor.Gauge):
         gauge.dec(3)
         assert gauge.counts["__"] == -3
+
+    def test_dec_by_negative_raises_value_error(self, gauge: instrumentor.Gauge):
+        with pytest.raises(ValueError):
+            gauge.dec(-3)
 
     def test_set(self, gauge: instrumentor.Gauge):
         gauge.set(100)
