@@ -12,7 +12,7 @@ URL = "https://github.com/u9n/instrumentor"
 EMAIL = "henrik@pwit.se"
 AUTHOR = "Henrik Palmlund Wahlgren @ Palmlund Wahlgren Innovative Technology AB"
 REQUIRES_PYTHON = ">=3.6"
-VERSION = "0.0.1dev"
+VERSION = "0.0.1"
 
 # What packages are required for this module to be executed?
 REQUIRED = ["redis==3.3.7", "hiredis==1.0.0", "attrs==19.1.0"]
