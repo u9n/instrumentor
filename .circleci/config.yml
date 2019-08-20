@@ -67,8 +67,4 @@ jobs:
     docker:
       - image: circleci/python:3.7
 
-  test-3.8:
-    <<: *test-template
-    docker:
-      - image: circleci/python:3.8
 
