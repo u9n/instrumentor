@@ -507,9 +507,9 @@ class Histogram(Metric):
         :return:
         """
 
-        def count_decorator(func):
+        def time_decorator(func):
             @functools.wraps(func)
-            def count_wrapper(*args, **kwargs):
+            def time_wrapper(*args, **kwargs):
                 start = time.time()
                 result = func(*args, **kwargs)
                 duration = time.time() - start
@@ -522,15 +522,15 @@ class Histogram(Metric):
                 self.observe(value=observed, labels=labels)
                 return result
 
-            return count_wrapper
+            return time_wrapper
 
         if _func is None:
-            return count_decorator
+            return time_decorator
         else:
-            return count_decorator(_func)
+            return time_decorator(_func)
 
 
-def count(_func=None, *, metric, labels=None):
+def count(*, metric, labels=None):
     """
         Decoration that will count the number of times the decorator has been used,
         ie. how many times the function is called.
@@ -548,10 +548,7 @@ def count(_func=None, *, metric, labels=None):
 
             return count_wrapper
 
-        if _func is None:
-            return count_decorator
-        else:
-            return count_decorator(_func)
+        return count_decorator
 
     else:
         raise ValueError("Count decorator can only be used with Counters or Gauges.")
