@@ -15,21 +15,29 @@ DESCRIPTION_EXTENSION_LETTER = "d"
 
 
 @attr.s
-class KeyValuePair:
-
-    key = attr.ib()
-    value = attr.ib()
-
-
-@attr.s
 class UpdateAction:
+    """
+    Simple dataclass to hold update data for Redis.
+
+    :param key: Redis key
+    :param value: Redis value
+    :param set: Indicates if a SET command should be used to write to Redis.
+    """
+
     key = attr.ib()
     value = attr.ib()
     set = attr.ib(default=False)
 
 
 class Metric:
-    """Base class for metrics"""
+    """
+    Base class for metrics
+
+
+    :param name: Metric name
+    :param description: Metric description
+    :param allowed_labels: Labels that are allowed for the metric.
+    """
 
     RESERVED_LABELS = [NO_LABELS_KEY, HISTOGRAM_LABEL, SUMMARY_LABEL]
     INTERNAL_LABELS = []
@@ -59,11 +67,12 @@ class Metric:
         """
         self.registry = None
 
-    def propagate(self, kw_list: List[UpdateAction]):
+    def propagate(self, update_actions: List[UpdateAction]) -> None:
         """
-        Will propagate counter updates up to the registry. We will only propagate the
-        metric type and description before they have been registered remotely.
-        :param kw_list:
+        Will propagate counter updates up to the registry. 
+        
+        Metric type and description will only be propagated to redis once.
+        :param update_actions: List of update actions
         :return:
         """
 
@@ -74,7 +83,7 @@ class Metric:
 
         to_propagate = list()
 
-        for item in kw_list:
+        for item in update_actions:
             # TODO: are we missing the :: after value? is that ok?
             if item.key == NO_LABELS_KEY:
                 to_propagate.append(UpdateAction(key=self.name, value=item.value))
@@ -84,11 +93,11 @@ class Metric:
 
         if not self.registered_remotely:
             to_propagate.append(
-                UpdateAction(key=self._type_key, value=self.TYPE_KEY, set=True)
+                UpdateAction(key=self.metric_type_key, value=self.TYPE_KEY, set=True)
             )
             to_propagate.append(
                 UpdateAction(
-                    key=self._description_key, value=self.description, set=True
+                    key=self.metric_description_key, value=self.description, set=True
                 )
             )
             # Only propagate type and description once.
@@ -97,20 +106,20 @@ class Metric:
         self.registry.update_buffer(to_propagate)
 
     @property
-    def _type_key(self) -> str:
+    def metric_type_key(self) -> str:
         """
         Type Key should be structured as {metric_name}:{type_extension_letter}:
         :return: str
         """
-        return self._structure_key_name(extension=TYPE_EXTENSION_LETTER)
+        return self.make_redis_key(extension=TYPE_EXTENSION_LETTER)
 
     @property
-    def _description_key(self) -> str:
+    def metric_description_key(self) -> str:
         """
         Description key should be structured as {metric_name}:{description_extension_letter}
         :return: str
         """
-        return self._structure_key_name(extension=DESCRIPTION_EXTENSION_LETTER)
+        return self.make_redis_key(extension=DESCRIPTION_EXTENSION_LETTER)
 
     def _check_labels(self, labels=None) -> dict:
         """
@@ -138,7 +147,8 @@ class Metric:
     def _clean_allowed_labels(self, labels=None) -> list:
         """
         Raises error on not allowed labels and sorts the labels
-        :param labels:
+
+        :param labels: Metric labels
         :return: list
         """
 
@@ -159,10 +169,13 @@ class Metric:
 
     def _encode_labels(self, labels=None) -> str:
         """
-        Encodes all lables in the format it should be save in redis in the key name.
+        Encodes all labels in the instrumento redis key format.
+        Labels are always sorted to produce the same string independent of the order
+        labels are typed.
         Format is {label_name}="{label_value}" which is also the Prometheus format.
         To handle the case with no lables the NO_LABELS_KEY is used.
-        :param labels:
+
+        :param labels: Metric labels
         :return: str
         """
         if not labels:
@@ -177,12 +190,12 @@ class Metric:
 
         return label_string[:-1]  # removes last comma
 
-    def _structure_key_name(self, name="", extension="", labels="") -> str:
+    def make_redis_key(self, name="", extension="", labels="") -> str:
         """
         Will structure the full key to be used in local and remote store.
-        :param name:
-        :param extension:
-        :param labels:
+        :param name: Metric name
+        :param extension: Instrumentor metric extension
+        :param labels: Metric labels
         :return:
         """
         _name = name or self.name
@@ -227,7 +240,7 @@ class Counter(Metric):
         self.counts[key] = new_value
 
         self.propagate(
-            [UpdateAction(key=self._structure_key_name(labels=key), value=new_value)]
+            [UpdateAction(key=self.make_redis_key(labels=key), value=new_value)]
         )
 
     def reset(self):
@@ -272,20 +285,17 @@ class Gauge(Metric):
         self.counts = {NO_LABELS_KEY: initial_value}
         self.set_command_issued = set()
 
-    def _set_command_issued_for_label_combination(self, label_combination):
-
-        return label_combination in self.set_command_issued
-
     def inc(self, value=1, labels: Dict[str, str] = None) -> None:
         """
         Increases the value.
-        If a set command has been issued, we can keep in using the redis set command.
-        If not we don't know the current remote state of the gauge, but we can still use
-        redis incrby and have correct value. After a set has been made for a label
-        combination we can keep on using redis set and get a bit more performance.
+        When starting up we might no know the current value of the remote metric
+        store in Redis. By issuing incr commands on `inc` and `dec` we don't need to
+        know the remote store state when increasing or decreasing.
+        If `set` is called we have now know that the local state and remote state
+        should be the same. After that we can issue changes by using the set command.
 
-        :param value:
-        :param labels:
+        :param value: Value to increase by
+        :param labels: Metric labels
         :return:
         """
 
@@ -298,30 +308,27 @@ class Gauge(Metric):
         current_value = self.counts.get(key, 0)
         new_value = current_value + value
 
-        if self._set_command_issued_for_label_combination(key):
+        if self._check_set_command_issued(key):
             self.set(new_value, labels)
 
         else:
             # uses incrby and we dont need to know the current value.
             self.counts[key] = new_value
             self.propagate(
-                [
-                    UpdateAction(
-                        key=self._structure_key_name(labels=key), value=new_value
-                    )
-                ]
+                [UpdateAction(key=self.make_redis_key(labels=key), value=new_value)]
             )
 
     def dec(self, value=1, labels: Dict[str, str] = None) -> None:
         """
-        Increases the value.
-        If a set command has been issued, we can keep in using the redis set command.
-        If not we don't know the current remote state of the gauge, but we can still use
-        redis incrby and have correct value. After a set has been made for a label
-        combination we can keep on using redis set and get a bit more performance.
+        Decrease the value.
+        When starting up we might no know the current value of the remote metric
+        store in Redis. By issuing incr commands on `inc` and `dec` we don't need to
+        know the remote store state when increasing or decreasing.
+        If `set` is called we have now know that the local state and remote state
+        should be the same. After that we can issue changes by using the set command.
 
-        :param value:
-        :param labels:
+        :param value: Value to decrease by
+        :param labels: Metric labels
         :return:
         """
         if value < 0:
@@ -333,26 +340,21 @@ class Gauge(Metric):
         current_value = self.counts.get(key, 0)
         new_value = current_value - value
 
-        if self._set_command_issued_for_label_combination(key):
+        if self._check_set_command_issued(key):
             self.set(new_value, labels)
 
         else:
-            # uses incrby and we dont need to know the current value.
             self.counts[key] = new_value
             self.propagate(
-                [
-                    UpdateAction(
-                        key=self._structure_key_name(labels=key), value=new_value
-                    )
-                ]
+                [UpdateAction(key=self.make_redis_key(labels=key), value=new_value)]
             )
 
     def set(self, value, labels: Dict[str, str] = None) -> None:
         """
         Sets the value of a label combination.
 
-        :param value:
-        :param labels:
+        :param value: Value to set
+        :param labels: Metric labels
         :return:
         """
 
@@ -361,11 +363,7 @@ class Gauge(Metric):
         self.counts[key] = value
 
         self.propagate(
-            [
-                UpdateAction(
-                    key=self._structure_key_name(labels=key), value=value, set=True
-                )
-            ]
+            [UpdateAction(key=self.make_redis_key(labels=key), value=value, set=True)]
         )
 
         self.set_command_issued.add(key)
@@ -376,6 +374,18 @@ class Gauge(Metric):
         :return:
         """
         pass
+
+    def _check_set_command_issued(self, label_combination):
+        """
+        To keep track of when to use a set command or an incr commands we are tracking
+        the issued set commands. Returns True if a set command been issued for the
+        label combination
+
+        :param label_combination:
+        :return:
+        """
+
+        return label_combination in self.set_command_issued
 
 
 class Histogram(Metric):
@@ -427,6 +437,13 @@ class Histogram(Metric):
         self._increase_total_count()
 
     def _add_observed_value(self, bucket, labels=None):
+        """
+        Adds increases the count for a given label combination but also adds the
+        bucket label to the label combination
+        :param bucket: bucket to increase
+        :param labels: metric labels
+        :return:
+        """
         bucket_label = {"le": bucket}
         if not labels:
             metric_labels = dict()
@@ -441,32 +458,45 @@ class Histogram(Metric):
         self.propagate(
             [
                 UpdateAction(
-                    key=self._structure_key_name(labels=count_key, extension="b"),
+                    key=self.make_redis_key(labels=count_key, extension="b"),
                     value=new_value,
                 )
             ]
         )
 
     def _add_to_histogram_sum(self, value):
+        """
+        Histogram has a sum that will have the sum of all observed values. When it is
+        changed we also must issue a new update to the remote store.
+
+        :param value:
+        :return:
+        """
         self.sum += value
 
         self.propagate(
-            [UpdateAction(key=self._structure_key_name(extension="s"), value=self.sum)]
+            [UpdateAction(key=self.make_redis_key(extension="s"), value=self.sum)]
         )
 
     def _increase_total_count(self):
-
+        """
+        Histogram should keep a counter for the total number of observations. This
+        counter should have the same value as the bucket counter for +Inf. And for
+        every change we should propagate an update to the remote store.
+        :return:
+        """
         self._add_observed_value(bucket=INFINITY_FOR_HISTOGRAM)
         self.propagate(
             [
                 UpdateAction(
-                    key=self._structure_key_name(extension="c"),
+                    key=self.make_redis_key(extension="c"),
                     value=self.counts.get('le="+Inf"'),
                 )
             ]
         )
 
     def reset(self):
+        """Resets the counters on the Histogram."""
         self.counts = dict()
         self.sum = 0
 
@@ -527,37 +557,16 @@ def count(_func=None, *, metric, labels=None):
         raise ValueError("Count decorator can only be used with Counters or Gauges.")
 
 
-def timer_decorator(_func=None, *, metric, labels=None, milliseconds=False):
-    """
-    Decoration that will time the functions it wraps and add the observation to the
-    histogram.
-    :return:
-    """
-
-    def count_decorator(func):
-        @functools.wraps(func)
-        def count_wrapper(*args, **kwargs):
-            start = time.time()
-            result = func(*args, **kwargs)
-            duration = time.time() - start
-
-            if milliseconds:
-                observed = duration * 1000
-            else:
-                observed = duration
-
-            metric.observe(value=observed, labels=labels)
-            return result
-
-        return count_wrapper
-
-    if _func is None:
-        return count_decorator
-    else:
-        return count_decorator(_func)
-
-
 class timer(contextlib.ContextDecorator):
+    """
+    A decorator that also can be used as a context manager for timing some execution
+
+    :param metric: Metric instance (Histogram or Summary)
+    :param labels: Metric labels
+    :param milliseconds: Indicates if result should be in milliseconds instead of
+        seconds.
+    """
+
     def __init__(self, *, metric, labels=None, milliseconds=False):
         self.metric = metric
         self.labels = labels

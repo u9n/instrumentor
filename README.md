@@ -111,10 +111,10 @@ value can only increase or be reset to zero on restart.
 
 Example for http_requests
 ```
-api_http_requests_total                                         -> 32   # counter without labels
-api_http_requests_total::method="POST",handler="/messages"      -> 12  # counter matching the labels
-api_http_requests_total:description                             ->  "Total HTTP Requets to API"
-api_http_requests_total:type                                    -> "counter"
+api_http_requests_total::                                         -> 32   # counter without labels
+api_http_requests_total::method="POST",handler="/messages"        -> 12  # counter matching the labels
+api_http_requests_total:description::                             ->  "Total HTTP Requets to API"
+api_http_requests_total:type::                                    -> "counter"
 ```
 
 ### Gauge
@@ -123,10 +123,10 @@ A Prometheus Gauge is a value that can increase and decrease.
 
 Example for temperature
 ```
-temperature_celcius                                     -> 32   # counter without labels
-temperature_celcius::location="MainOffice",sensor="34"  -> 12  # counter matching the labels
-temperature_celcius:description                         -> "Total HTTP Requets to API"
-temperature_celcius:type                                -> "gauge"
+temperature_celcius::                                     -> 32   # counter without labels
+temperature_celcius::location="MainOffice",sensor="34"    -> 12  # counter matching the labels
+temperature_celcius:descri ption:                         -> "Total HTTP Requets to API"
+temperature_celcius:type:                                 -> "gauge"
 ```
 
 ### Histogram
@@ -146,13 +146,14 @@ http_request_duration_seconds:bucket:le="0.2"     ->  100392
 http_request_duration_seconds:bucket:le="0.5"     ->  129389
 http_request_duration_seconds:bucket:le="1"       ->  133988
 http_request_duration_seconds:bucket:le="+Inf"    ->  144320
-http_request_duration_seconds:sum                 ->  53423
-http_request_duration_seconds:count               ->  144320 
-http_request_duration_seconds:description         ->  "Duration of HTTP requests"
-http_request_duration_seconds:type                ->  "histogram"
+http_request_duration_seconds:sum:                 ->  53423
+http_request_duration_seconds:count:               ->  144320 
+http_request_duration_seconds:description:         ->  "Duration of HTTP requests"
+http_request_duration_seconds:type:                ->  "histogram"
 ```
-TODO: no need to write out everything, have h for histgram, c for count, d for description etc.
-
+To save some bytes extensions are encoded with the letter they start with. 
+description=d, sum=s, count=c, type=t, bucket=b. The type value is also 
+shortened: counter=c, gauge=g, histogram=h, summary=s
 
 ### Summary
 
@@ -170,9 +171,10 @@ rpc_duration_seconds::quantile="0.05"       -> 3272
 rpc_duration_seconds::quantile="0.5"        -> 4773
 rpc_duration_seconds::quantile="0.9"        -> 9001
 rpc_duration_seconds::quantile="0.99"       -> 76656
-rpc_duration_seconds:sum                    -> 1.7560473e+07
-rpc_duration_seconds:count                  -> 2693
-rpc_duration_seconds:description            ->  
+rpc_duration_seconds:sum:                   -> 1.7560473e+07
+rpc_duration_seconds:count:                 -> 2693
+rpc_duration_seconds:description:           -> "Duration of RPC" 
+rpc_duration_seconds:type:                  ->  "summary"
 ```
 
 
@@ -282,8 +284,8 @@ response_time_seconds.observe(34)
 ### Instrumenting
 
 
-```
-# example module mymetrics.py
+```python
+# In a collection module, ex mymetrics.py
 import redis
 import instrumentor
 
@@ -294,9 +296,9 @@ http_requests_total = instrumentor.Counter(name='http_request_total', descriptio
 
 reg.register(http_requests_total)
 
-In other module:
+#In other module:
 
-from mymetric import http_requests_total
+from mymetrics import http_requests_total
 
 http_requests_total.inc()
 
@@ -308,31 +310,55 @@ We provide a simple decorator that can be used for counting method calls.
 
 It is available for counters and gauges.
 
-```
-from mymetrics import my_func_invocation_total
+```python
+from mymetrics import http_request_total
 
-@my_func_invocation_total.count
-def my_func()
+@http_request_total.count
+def my_func():
     pass
-    
+     
 ```
 
-Timing is done via decorator or context manager.
+It is also possible to use the general decorator and supply the metric as an input arg.
+
+```python
+
+from instrumentor import count
+from  mymetrics import http_requests_total
+
+@count(metric=http_requests_total, labels={"code": "200"})
+def my_func():
+    pass
 
 
 ```
+
+Timing is done via decorator on the metric instance or the general decorator/context manager.
+
+```python
+import instrumentor
 from mymetrics import my_func_runtime_seconds
+import time
 @my_func_runtime_seconds.time
-def myfund()
-    sleep(1)
+def myfund():
+    time.sleep(1)
     
 
 # or
 
-def myfunc()
-
-    with my_func_runtime_seconds.time:
-        sleep(1)
+@instrumentor.timer(metric=my_func_runtime_seconds)
+def myfunc():
+    pass
+    
+    
+with instrumentor.timer(
+    metric=my_func_runtime_seconds, 
+    milliseconds=True,
+    labels={"my-label": "test"}):
+    
+    time.sleep(1)
+        
+        
 
 
 ```
@@ -361,6 +387,30 @@ Similar to django.
 Registry probably be made as an extension so it can be saved in the global app context.
 
 have the `transfer()` be registed to be run using Flasks `after_request` decorator.
+
+
+#### Instrumenting Celery Tasks
+
+By making a new decorator that can wrap the normal task decorator it is possible 
+to add instrumenting capabilities when running a task.
+after task has run call `transfer()` on the registry.
+It should also be possible to add celery specific metrics as task execution time, 
+memory consumption etc. 
+
+
+
+## Exposition
+
+Since the format in redis is predefined an exposition client could be written in 
+any language. Included in the library is a very simple exposition client.
+The results from the client can then be returned in a for example a django view.
+The client only knows about the namespace it should collect and does so with the 
+HGETALL command in Redis.
+
+Metrics could be exposed in the web application that you are instrumenting or 
+a separate webapp just for exposition could be set up, that also could expose 
+several namespaces (applications). This way scraping is decoupled from you application 
+and can be scaled accordingly.
 
 
 
