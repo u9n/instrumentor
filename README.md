@@ -2,8 +2,9 @@
 
 Instrumentation library for python apps. Backed by Redis and exposes to Prometheus
 
--- Work in progress --  
--- Docs as design document --
+[![CircleCI](https://circleci.com/gh/u9n/instrumentor/tree/master.svg?style=svg)](https://circleci.com/gh/u9n/instrumentor/tree/master)
+[![Coverage Status](https://coveralls.io/repos/github/u9n/instrumentor/badge.svg?branch=circleci)](https://coveralls.io/github/u9n/instrumentor?branch=circleci)
+
 
 # About Instrumentor
 
@@ -411,6 +412,15 @@ Metrics could be exposed in the web application that you are instrumenting or
 a separate webapp just for exposition could be set up, that also could expose 
 several namespaces (applications). This way scraping is decoupled from you application 
 and can be scaled accordingly.
+
+## Installation
+
+Python 3.6 + required. Install via pip:
+
+```bash
+pip install instrumentor
+```
+
 
 
 

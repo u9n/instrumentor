@@ -14,6 +14,11 @@ class TestCounter:
 
         assert counter.counts["__"] == 3
 
+    def test_inc_by_float(self, counter: instrumentor.Counter):
+        counter.inc(3.5)
+
+        assert counter.counts["__"] == 3.5
+
     def test_inc_with_labels(self, counter: instrumentor.Counter):
         counter.inc(3, labels={"code": "200", "path": "/api"})
 
@@ -27,6 +32,16 @@ class TestCounter:
         counter.inc(3, labels={"path": "/api", "code": "200"})
 
         assert counter.counts['code="200",path="/api"'] == 6
+
+    def test_inc_counter_without_registering_raises_runtime_error(self):
+        counter = instrumentor.Counter(
+            name="http_total_requests",
+            description="Test",
+            allowed_labels=["code", "path"],
+        )
+
+        with pytest.raises(RuntimeError):
+            counter.inc()
 
     def test_counter_type_value(self, counter: instrumentor.Counter):
         assert counter.TYPE_KEY == "c"

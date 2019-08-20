@@ -217,7 +217,7 @@ class Counter(Metric):
 
         self.counts = {NO_LABELS_KEY: 0}
 
-    def inc(self, value: int = 1, labels: Dict[str, str] = None) -> None:
+    def inc(self, value=1, labels: Dict[str, str] = None) -> None:
         """
         Will increase the counter for a given label combination. It does not allow
         negative values
@@ -417,6 +417,7 @@ class Histogram(Metric):
         self.buckets = buckets
         self.counts = dict()
         self.sum = 0
+        self.total_count = 0
         self.set_command_issued = set()
 
     def observe(self, value, labels=None):
@@ -486,6 +487,7 @@ class Histogram(Metric):
         :return:
         """
         self._add_observed_value(bucket=INFINITY_FOR_HISTOGRAM)
+        self.total_count += 1
         self.propagate(
             [
                 UpdateAction(
