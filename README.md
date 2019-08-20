@@ -4,7 +4,9 @@ Instrumentation library for python apps. Backed by Redis and exposes to Promethe
 
 [![CircleCI](https://circleci.com/gh/u9n/instrumentor/tree/master.svg?style=svg)](https://circleci.com/gh/u9n/instrumentor/tree/master)
 [![Coverage Status](https://coveralls.io/repos/github/u9n/instrumentor/badge.svg?branch=circleci)](https://coveralls.io/github/u9n/instrumentor?branch=circleci)
-
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/instrumentor)
+![PyPI - License](https://img.shields.io/pypi/l/instrumentor)
+![PyPI](https://img.shields.io/pypi/v/instrumentor)
 
 # About Instrumentor
 

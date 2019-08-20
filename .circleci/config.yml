@@ -3,8 +3,14 @@
 # Check https://circleci.com/docs/2.0/language-python/ for more details
 #
 version: 2
+workflows:
+  version: 2
+  test:
+    jobs:
+      - test-3.6
+      - test-3.7
 jobs:
-  build:
+  test-3.6: &test-template
     docker:
       # specify the version you desire here
       # use `-browsers` prefix for selenium tests, e.g. `3.6.1-browsers`
@@ -47,6 +53,7 @@ jobs:
 
 
       # run tests!
+      # should we only run coverage on one of the workflows?
       - run:
           name: run tests
           command: |
@@ -54,6 +61,9 @@ jobs:
             pytest -v --cov=instrumentor
             coveralls
 
-      - store_artifacts:
-          path: test-reports
-          destination: test-reports
+  test-3.7:
+    <<: *test-template
+    docker:
+      - image: circleci/python:3.7
+
+
