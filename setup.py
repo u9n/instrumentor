@@ -15,7 +15,7 @@ REQUIRES_PYTHON = ">=3.6"
 VERSION = "0.0.1"
 
 # What packages are required for this module to be executed?
-REQUIRED = ["redis==3.3.7", "hiredis==1.0.0", "attrs==19.1.0"]
+REQUIRED = ["redis==4.5.3", "hiredis==1.0.0", "attrs==19.1.0"]
 
 # What packages are optional?
 EXTRAS = {
